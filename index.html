@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASKAB PSSI KEPULAUAN MENTAWAI</title>
+    <link rel="stylesheet" href="style.css"> 
+</head>
+<body>
+
+    <div id="login-page" class="container">
+        <header>
+            <h2 style="color: yellow;">ASKAB PSSI KABUPATEN</h2>
+            <h2>Login Admin</h2>
+        </header>
+        <p id="login-message" style="color: red; text-align: center;"></p>
+        <form id="login-form">
+            <div class="form-group">
+                <label for="username">username:</label>
+                <input type="text" id="username" required value="admin001"> 
+            </div>
+            <div class="form-group">
+                <label for="password">password:</label>
+                <input type="password" id="password" required value="admin100">
+            </div>
+            <button type="submit">MASUK</button>
+            <p style="text-align: center; margin-top: 15px;"><a href="#" onclick="alert('Silakan hubungi Admin Pusat untuk pembuatan Akun Klub baru.')">Buat Akun Klub</a></p>
+        </form>
+    </div>
+
+    <div id="dashboard-page" class="container hidden">
+        <header>
+            <h2 id="welcome-message">Dashboard Administrator</h2>
+        </header>
+        <nav>
+            <button onclick="showContent('A1')">FORM A1 (Klub)</button>
+            <button onclick="showContent('A2')">FORM A2 (Pemain)</button>
+            <button onclick="showContent('A3')">FORM A3 (Line-Up)</button>
+            <button onclick="showContent('Berita')">BERITA</button>
+            <button onclick="showContent('Chatting')">CHATTING</button>
+            <button onclick="logout()" class="delete-btn">Logout</button>
+        </nav>
+        
+        <div id="content-area">
+            <h3>Selamat Datang di Sistem Informasi ASKAB PSSI Mentawai!</h3>
+            <p>Pilih menu di atas untuk mengelola data. Anda login sebagai <strong id="current-user-role"></strong>.</p>
+        </div>
+        
+        <div id="modal" class="hidden">
+            <div class="modal-content">
+                <h3 id="modal-title">Form Data</h3>
+                <p style="font-size: 0.9em; margin-bottom: 20px;">Isi semua kolom yang diperlukan.</p>
+                <form id="dynamic-form"></form>
+                <button onclick="closeModal()" style="margin-top: 20px;" class="delete-btn">Tutup</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
