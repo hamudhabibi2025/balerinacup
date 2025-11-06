@@ -73,15 +73,23 @@ async function handleLogin(event) {
 function checkAuth() {
     const token = localStorage.getItem('userToken');
     if (token) {
+        // Jika ada token, coba load dashboard
         loadDashboard();
     } else {
-        // Mode GUEST hanya bisa lihat Berita
-        showPage('dashboard-page'); 
-        showContent('Berita');
-        // Sembunyikan navigasi untuk Guest
-        document.querySelector('nav').style.display = 'none'; 
-        document.getElementById('welcome-message').textContent = 'ASKAB PSSI KEPULAUAN MENTAWAI';
-        document.getElementById('current-user-role').textContent = 'Anda belum login (Guest)';
+        // Jika tidak ada token, tampilkan halaman login dan muat konten tamu
+        showPage('login-page');
+        loadGuestContent(); 
+    }
+}
+
+async function loadGuestContent() {
+    // Muat Berita sebagai tamu (Guest) di latar belakang
+    const result = await fetchData('readData', 'GET', { sheet: 'Berita' });
+    if (result.success) {
+        // Render Berita ke area khusus tamu
+        renderBeritaInterface(result.data, { TIPE_USER: 'GUEST' });
+    } else {
+         document.getElementById('guest-content-area').innerHTML = `<p style="color:red; text-align:center;">Gagal memuat Berita: ${result.message}</p>`;
     }
 }
 
@@ -93,13 +101,18 @@ async function loadDashboard() {
         globalUserData = result.user;
         document.getElementById('welcome-message').textContent = `Dashboard - ${result.user.TIPE_USER}`;
         document.getElementById('current-user-role').textContent = `${result.user.USERNAME} (${result.user.TIPE_USER})`;
+        
+        // Hapus konten Guest dari halaman login
+        document.getElementById('guest-content-area').innerHTML = '';
+
         showPage('dashboard-page');
         document.querySelector('nav').style.display = 'flex'; 
-        showContent('A1'); // Default tampilkan A1
+        showContent('A1'); // Default tampilkan A1 untuk user terautentikasi
     } else {
+        // Sesi habis atau error, kembali ke login
         localStorage.removeItem('userToken');
         alert(result.message || 'Sesi habis atau terjadi kesalahan otentikasi. Silakan login kembali.');
-        showPage('login-page');
+        checkAuth(); 
     }
 }
 
@@ -150,6 +163,7 @@ async function showContent(formName) {
             }
             renderChatInterface(user);
         } else if (formName === 'Berita') {
+             // Berita di render di dashboard-page untuk logged in user
             renderBeritaInterface(result.data, user);
         } else {
             if (user.TIPE_USER === 'GUEST') {
@@ -208,7 +222,8 @@ function renderCrudInterface(formName, sheetName, data, user) {
 }
 
 function renderBeritaInterface(data, user) {
-    const contentArea = document.getElementById('content-area');
+    // Pilih area konten berdasarkan tipe user (Guest atau Logged In)
+    const contentArea = user.TIPE_USER === 'GUEST' ? document.getElementById('guest-content-area') : document.getElementById('content-area');
     const canManage = user.TIPE_USER && (user.TIPE_USER === 'ADMINPUSAT' || user.TIPE_USER === 'ADMIN MEDIA');
     const primaryKey = 'ID_BERITA';
 
@@ -412,7 +427,7 @@ function getFormFields(sheetName, userData) {
             'ID LINE-UP': { type: 'text', readOnly: true, value: 'Otomatis dibuat' }, // PK
             'TANGGAL_PERTANDINGAN': { type: 'date', value: new Date().toISOString().substring(0, 10), required: true },
             'LOKASI_PERTANDINGAN': { type: 'text', value: 'LAPANGAN GOISO OINAN' },
-            'ID_KLUB': { type: 'text', readOnly: true, value: userData.ID_KLUB || '' },
+            'ID_KLUB': { type: 'text', readOnly: true, value: globalUserData.ID_KLUB || '' },
             'TIPE_PEMAIN': { type: 'select', options: ['UTAMA', 'CADANGAN'], required: true, helper: 'Status Pemain di Pertandingan' },
             'ID_PEMAIN': { type: 'select', helper: 'Pilih Pemain (Data dari A2)', required: true },
             'NAMA_PUNGGUNG': { type: 'text', helper: 'Nama Pendek Pemain (Diisi Otomatis)' , readOnly: true},
@@ -424,7 +439,7 @@ function getFormFields(sheetName, userData) {
             'JUDUL_BERITA': { type: 'text', required: true }, 
             'POTO_URL': { type: 'text', helper: 'URL Gambar Thumbnail' },
             'ISI_BERITA': { type: 'textarea', required: true }, 
-            'PENULIS': { type: 'text', readOnly: true, value: userData.USERNAME },
+            'PENULIS': { type: 'text', readOnly: true, value: globalUserData.USERNAME },
             'TANGGAL': { type: 'text', readOnly: true, value: new Date().toLocaleDateString("id-ID") },
         };
     }
@@ -440,7 +455,8 @@ function openModal(sheetName, itemToEdit) {
     title.textContent = `${isEdit ? 'Edit' : 'Tambah'} Data ${sheetName}`;
     form.innerHTML = '';
     
-    const fields = getFormFields(sheetName, globalUserData);
+    // Pastikan globalUserData tersedia sebelum memanggil getFormFields
+    const fields = getFormFields(sheetName, globalUserData || { TIPE_USER: 'GUEST', ID_KLUB: '' });
     const primaryKey = sheetName === 'FORM-A1' ? 'ID_KLUB' : sheetName === 'FORM-A2' ? 'ID_PEMAIN' : sheetName === 'Berita' ? 'ID_BERITA' : 'ID LINE-UP';
 
     form.dataset.sheet = sheetName;
