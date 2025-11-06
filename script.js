@@ -1,5 +1,5 @@
 // <<<< GANTI DENGAN URL WEB APP APPS SCRIPT ANDA >>>>
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby7QfrwLeRS162b89DpDIuA6bYaV4MsVRuKh1szFmfNEnX_2qvGV7O9fCHaLBsH0kPXcg/exec"; 
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwROFN6M-hR-aUo9kh5KkTOTpm6KHsX_l55IvxW4Zhi_uDDWw_PLMFKHakSyl6q5_bmeg/exec"; 
 // <<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 let chatPollingInterval = null;
@@ -15,9 +15,7 @@ async function fetchData(action, method = 'GET', data = {}) {
     const url = new URL(APPS_SCRIPT_URL);
     let requestOptions = { 
         method: method,
-        headers: {
-            'Content-Type': 'application/json'
-        } 
+        headers: { 'Content-Type': 'application/json' } 
     };
 
     if (method === 'POST') {
@@ -34,7 +32,7 @@ async function fetchData(action, method = 'GET', data = {}) {
 
     try {
         const response = await fetch(url.toString(), requestOptions);
-        if (!response.ok && response.status !== 401) {
+        if (!response.ok && response.status !== 401 && response.status !== 400) {
              const errorText = await response.text();
              console.error(`HTTP error! status: ${response.status}`, errorText);
              return { success: false, message: `Server error (${response.status})` };
@@ -42,7 +40,7 @@ async function fetchData(action, method = 'GET', data = {}) {
         return await response.json();
     } catch (error) {
         console.error('Error fetching data:', error);
-        return { success: false, message: 'Gagal koneksi ke Backend Apps Script.' };
+        return { success: false, message: 'Gagal koneksi ke Backend Apps Script. Cek URL Web App.' };
     }
 }
 
@@ -63,6 +61,7 @@ async function handleLogin(event) {
 
     if (result.success) {
         localStorage.setItem('userToken', result.token);
+        globalUserData = result.user; // Simpan data user dari response login
         messageEl.textContent = 'Login berhasil. Memuat Dashboard...';
         loadDashboard();
     } else {
@@ -73,46 +72,29 @@ async function handleLogin(event) {
 function checkAuth() {
     const token = localStorage.getItem('userToken');
     if (token) {
-        // Jika ada token, coba load dashboard
         loadDashboard();
     } else {
-        // Jika tidak ada token, tampilkan halaman login dan muat konten tamu
         showPage('login-page');
-        loadGuestContent(); 
-    }
-}
-
-async function loadGuestContent() {
-    // Muat Berita sebagai tamu (Guest) di latar belakang
-    const result = await fetchData('readData', 'GET', { sheet: 'Berita' });
-    if (result.success) {
-        // Render Berita ke area khusus tamu
-        renderBeritaInterface(result.data, { TIPE_USER: 'GUEST' });
-    } else {
-         document.getElementById('guest-content-area').innerHTML = `<p style="color:red; text-align:center;">Gagal memuat Berita: ${result.message}</p>`;
     }
 }
 
 async function loadDashboard() {
-    // Coba baca data awal untuk validasi sesi dan mendapatkan detail user
+    // Verifikasi token dengan mencoba memuat data awal
     const result = await fetchData('readData', 'GET', { sheet: 'FORM-A1' }); 
     
-    if (result.success) {
+    if (result.success && result.user) {
         globalUserData = result.user;
         document.getElementById('welcome-message').textContent = `Dashboard - ${result.user.TIPE_USER}`;
         document.getElementById('current-user-role').textContent = `${result.user.USERNAME} (${result.user.TIPE_USER})`;
         
-        // Hapus konten Guest dari halaman login
-        document.getElementById('guest-content-area').innerHTML = '';
-
         showPage('dashboard-page');
         document.querySelector('nav').style.display = 'flex'; 
-        showContent('A1'); // Default tampilkan A1 untuk user terautentikasi
+        showContent('Berita'); // Default tampilkan Berita setelah login
     } else {
-        // Sesi habis atau error, kembali ke login
+        // Sesi habis, error otentikasi.
         localStorage.removeItem('userToken');
-        alert(result.message || 'Sesi habis atau terjadi kesalahan otentikasi. Silakan login kembali.');
-        checkAuth(); 
+        alert(result.message || 'Sesi habis. Silakan login kembali.');
+        showPage('login-page'); 
     }
 }
 
@@ -138,7 +120,6 @@ async function showContent(formName) {
     const contentArea = document.getElementById('content-area');
     contentArea.innerHTML = `<h3>Memuat Data ${formName}...</h3>`;
     
-    // Hentikan Polling Chat jika pindah dari halaman Chat
     if (formName !== 'Chatting' && chatPollingInterval) {
         clearInterval(chatPollingInterval);
         chatPollingInterval = null;
@@ -157,32 +138,26 @@ async function showContent(formName) {
     if (result.success) {
         const user = result.user;
         if (formName === 'Chatting') {
-            if (user.TIPE_USER === 'GUEST') {
-                contentArea.innerHTML = `<p style="color: red;">Anda harus login untuk mengakses Chatting.</p>`;
-                return;
-            }
             renderChatInterface(user);
         } else if (formName === 'Berita') {
-             // Berita di render di dashboard-page untuk logged in user
             renderBeritaInterface(result.data, user);
         } else {
-            if (user.TIPE_USER === 'GUEST') {
-                contentArea.innerHTML = `<p style="color: red;">Anda harus login untuk mengakses data ini.</p>`;
-                return;
-            }
             renderCrudInterface(formName, sheetName, result.data, user);
         }
     } else {
-        contentArea.innerHTML = `<p style="color: red;">Gagal memuat data: ${result.message}.</p>`;
+        contentArea.innerHTML = `<p style="color: red;">Gagal memuat data. ${result.message}. Silakan coba logout dan login kembali.</p>`;
+        if (result.message && result.message.includes('login')) {
+             localStorage.removeItem('userToken');
+             showPage('login-page');
+        }
     }
 }
 
 function renderCrudInterface(formName, sheetName, data, user) {
     const contentArea = document.getElementById('content-area');
     
-    const primaryKey = sheetName === 'FORM-A1' ? 'ID_KLUB' : sheetName === 'FORM-A2' ? 'ID_PEMAIN' : 'ID LINE-UP';
+    const primaryKey = sheetName === 'FORM-A1' ? 'ID_KLUB' : sheetName === 'FORM-A2' ? 'ID_PEMAIN' : 'ID_LINE_UP';
     
-    // Logika CREATE: Klub hanya bisa buat A1 jika kosong, atau buat A2/A3. Admin bisa semua.
     const canCreate = user.TIPE_USER === 'ADMINPUSAT' || user.TIPE_USER === 'ADMIN MEDIA' || (user.TIPE_USER === 'ADMIN KLUB' && sheetName === 'FORM-A1' && data.length === 0) || (user.TIPE_USER === 'ADMIN KLUB' && sheetName !== 'FORM-A1');
     const headers = data.length > 0 ? Object.keys(data[0]) : [];
 
@@ -222,9 +197,8 @@ function renderCrudInterface(formName, sheetName, data, user) {
 }
 
 function renderBeritaInterface(data, user) {
-    // Pilih area konten berdasarkan tipe user (Guest atau Logged In)
-    const contentArea = user.TIPE_USER === 'GUEST' ? document.getElementById('guest-content-area') : document.getElementById('content-area');
-    const canManage = user.TIPE_USER && (user.TIPE_USER === 'ADMINPUSAT' || user.TIPE_USER === 'ADMIN MEDIA');
+    const contentArea = document.getElementById('content-area'); 
+    const canManage = user.TIPE_USER && (user.TIPE_USER === 'ADMINPUSAT' || user.TIPE_USER === 'ADMIN_MEDIA');
     const primaryKey = 'ID_BERITA';
 
     let html = `
@@ -236,7 +210,7 @@ function renderBeritaInterface(data, user) {
                 <h4 style="color: #004d99;">${item.JUDUL_BERITA}</h4>
                 <p style="font-size: 0.8em; color: #666;">Oleh: ${item.PENULIS || 'Admin'} - ${item.TANGGAL}</p>
                 ${item.POTO_URL ? `<img src="${item.POTO_URL}" style="max-width: 100%; height: auto; margin: 10px 0;">` : ''}
-                <p>${item.ISI_BERITA ? (item.ISI_BERITA.substring(0, 300) + '...') : ''} <a href="#" onclick="alert('${(item.ISI_BERITA || '').replace(/'/g, '\\\'')}')">Baca Selengkapnya</a></p>
+                <p>${item.ISI_BERITA ? (item.ISI_BERITA.substring(0, 300) + '...') : ''} <a href="#" onclick="alert('${(item.ISI_BERITA || '').replace(/'/g, '\\\'').replace(/\n/g, '\\n')}')">Baca Selengkapnya</a></p>
                 
                 ${canManage ? `
                     <button class="action-btn" onclick="openModal('Berita', ${JSON.stringify(item).replace(/"/g, '&quot;')})">Edit</button>
@@ -251,11 +225,9 @@ function renderBeritaInterface(data, user) {
 
 function renderChatInterface(user) {
     const contentArea = document.getElementById('content-area');
-    
-    // Target Chatting: ASKAB dan ADMIN MEDIA
     const availableTargets = [
         { name: 'ASKAB PUSAT', username: 'ASKAB' },
-        { name: 'ADMIN MEDIA', username: 'ADMIN MEDIA' },
+        { name: 'ADMIN MEDIA', username: 'ADMIN_MEDIA' },
     ];
     
     contentArea.innerHTML = `
@@ -265,7 +237,7 @@ function renderChatInterface(user) {
             <label for="target-user">Chat dengan:</label>
             <select id="target-user" onchange="startChatSession(this.value, '${user.USERNAME}')">
                 <option value="">-- Pilih Lawan Bicara --</option>
-                ${availableTargets.map(t => `<option value="${t.username}">${t.name} (${t.username})</option>`).join('')}
+                ${availableTargets.filter(t => t.username !== user.USERNAME).map(t => `<option value="${t.username}">${t.name} (${t.username})</option>`).join('')}
             </select>
         </div>
         
@@ -281,103 +253,90 @@ function renderChatInterface(user) {
 }
 
 function startChatSession(targetUser, currentUser) {
-    if (!targetUser) return;
-    
-    currentChatTarget = targetUser;
-    document.getElementById('chat-form').classList.remove('hidden');
-    
     if (chatPollingInterval) clearInterval(chatPollingInterval);
+    currentChatTarget = targetUser;
     
-    fetchAndDisplayChat(currentUser, targetUser);
-    chatPollingInterval = setInterval(() => {
+    if (targetUser) {
+        document.getElementById('chat-form').classList.remove('hidden');
         fetchAndDisplayChat(currentUser, targetUser);
-    }, 3000); 
+        chatPollingInterval = setInterval(() => fetchAndDisplayChat(currentUser, targetUser), 5000); 
+    } else {
+        document.getElementById('chat-box').innerHTML = '<p style="text-align: center;">Pilih lawan bicara untuk memulai chat.</p>';
+        document.getElementById('chat-form').classList.add('hidden');
+    }
 }
 
 async function fetchAndDisplayChat(currentUser, targetUser) {
     const chatBox = document.getElementById('chat-box');
-    const isScrolledToBottom = chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight;
-
     const result = await fetchData('getChatHistory', 'GET', { targetUser: targetUser });
-
+    
     if (result.success) {
-        const messageCountBefore = chatBox.children.length;
-        renderChatMessages(result.data, currentUser);
-        const messageCountAfter = chatBox.children.length;
-
-        if (result.data.length > 0) {
-            await fetchData('markRead', 'POST', { targetUser: targetUser });
-        }
-        
-        if (messageCountAfter > messageCountBefore || isScrolledToBottom) {
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
+        renderChatMessages(result.data, currentUser, chatBox);
+        await fetchData('markRead', 'POST', { targetUser: targetUser }); // Tandai pesan masuk sebagai dibaca
     } else {
-        chatBox.innerHTML = `<p style="color: red;">Gagal memuat chat: ${result.message}</p>`;
+        chatBox.innerHTML = `<p style="color: red; text-align: center;">Gagal memuat chat: ${result.message}</p>`;
     }
 }
 
-function renderChatMessages(messages, currentUser) {
-    const chatBox = document.getElementById('chat-box');
+function renderChatMessages(messages, currentUser, chatBox) {
+    const shouldScroll = chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 20;
+
     let html = messages.map(msg => {
         const isSelf = msg.PENGIRIM === currentUser;
-        const alignClass = isSelf ? 'chat-self' : 'chat-other';
-        const readStatus = isSelf && msg.IS_READ === 'TRUE' ? '✓✓' : '';
-        
+        const className = isSelf ? 'chat-self' : 'chat-other';
         return `
-            <div class="chat-message ${alignClass}">
-                <span class="chat-bubble">
+            <div class="chat-message ${className}">
+                <div class="chat-bubble">
                     ${msg.ISI_CHAT}
-                    <span class="chat-meta">
-                        ${msg.TANGGAL_CHAT || new Date().toLocaleTimeString()} ${readStatus}
-                    </span>
-                </span>
+                    <span class="chat-meta">${msg.TANGGAL_CHAT}</span>
+                </div>
             </div>
         `;
     }).join('');
 
     chatBox.innerHTML = html;
+
+    // Scroll ke bawah jika sebelumnya sudah di bawah
+    if (shouldScroll) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
 }
 
 async function handleSendChat(event, currentUser) {
     event.preventDefault();
-    const chatInput = document.getElementById('chat-input');
-    const message = chatInput.value.trim();
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
 
     if (!message || !currentChatTarget) return;
 
-    const result = await fetchData('postChat', 'POST', {
-        data: {
-            PENGIRIM: currentUser,
-            PENERIMA: currentChatTarget,
-            ISI_CHAT: message
-        }
-    });
+    const data = {
+        PENERIMA: currentChatTarget,
+        ISI_CHAT: message
+    };
+
+    const result = await fetchData('postChat', 'POST', { data: data });
 
     if (result.success) {
-        chatInput.value = '';
+        input.value = '';
+        // Muat ulang chat untuk menampilkan pesan yang baru dikirim
         fetchAndDisplayChat(currentUser, currentChatTarget); 
     } else {
         alert("Gagal mengirim pesan: " + result.message);
     }
 }
 
-// ----------------------------------------------------
-// LOGIKA FORM MODAL (CREATE & UPDATE)
-// ----------------------------------------------------
 
 function getFormFields(sheetName, userData) {
+    const user = userData || globalUserData; // Menggunakan globalUserData
     const baseFields = {
-        'ID_KLUB': { type: 'text', readOnly: true, value: userData.ID_KLUB || '' },
+        'ID_KLUB': { type: 'text', readOnly: true, value: user.ID_KLUB || '' },
     };
     
-    // Admin Pusat/Media dapat mengedit ID_KLUB secara manual
-    if (userData.TIPE_USER !== 'ADMIN KLUB') baseFields.ID_KLUB.readOnly = false;
+    if (user.TIPE_USER !== 'ADMIN KLUB') baseFields.ID_KLUB.readOnly = false;
 
     if (sheetName === 'FORM-A1') {
         return {
             ...baseFields,
-            // DATA KLUB
             'NAMA_RESMI_KLUB': { type: 'text', value: '', header: 'DATA KLUB', required: true },
             'JULUKAN_KLUB': { type: 'text', value: '' },
             'TANGGAL_BERDIRI': { type: 'date' }, 
@@ -387,8 +346,6 @@ function getFormFields(sheetName, userData) {
             'PROVINSI': { type: 'text' },
             'NO_HANDPHONE': { type: 'tel' }, 
             'EMAIL': { type: 'email' },     
-            
-            // DATA PENGURUS
             'MANAJER': { type: 'text', header: 'DATA PENGURUS KLUB' }, 
             'HP_MANAJER': { type: 'tel' },
             'ASISTEN_MANAJER': { type: 'text' },
@@ -399,21 +356,17 @@ function getFormFields(sheetName, userData) {
             'HP_BENDAHARA': { type: 'tel' },
             'MEDIA': { type: 'text' },
             'HP_MEDIA': { type: 'tel' },
-            
-            // DATA PELATIH
             'PELATIH': { type: 'text', header: 'DATA PELATIH' },
             'HP_PELATIH': { type: 'tel' },
             'ASISTEN_PELATIH': { type: 'text' },
             'HP_ASISTEN_PELATIH': { type: 'tel' },
-            
-            // STAFF LAINNYA
             'STAFF_LAINNYA': { type: 'text', header: 'STAFF LAINNYA' },
             'HP_STAFF_LAINNYA': { type: 'tel' },
         };
     } else if (sheetName === 'FORM-A2') {
         return {
             ...baseFields,
-            'NAMA_KLUB': { type: 'text', readOnly: true, value: 'Otomatis' },
+            'NAMA_KLUB': { type: 'text', readOnly: true, value: user.NAMA_KLUB || 'Otomatis' },
             'ID_PEMAIN': { type: 'text', helper: '16 Angka Unik (NIK/No. Identitas Lain)', required: true },
             'NAMA_LENGKAP': { type: 'text', required: true },
             'NAMA_PUNGGUNG': { type: 'text' },
@@ -424,10 +377,10 @@ function getFormFields(sheetName, userData) {
         };
     } else if (sheetName === 'FORM-A3') {
         return {
-            'ID LINE-UP': { type: 'text', readOnly: true, value: 'Otomatis dibuat' }, // PK
+            'ID_LINE_UP': { type: 'text', readOnly: true, value: 'Otomatis dibuat' }, 
             'TANGGAL_PERTANDINGAN': { type: 'date', value: new Date().toISOString().substring(0, 10), required: true },
             'LOKASI_PERTANDINGAN': { type: 'text', value: 'LAPANGAN GOISO OINAN' },
-            'ID_KLUB': { type: 'text', readOnly: true, value: globalUserData.ID_KLUB || '' },
+            'ID_KLUB': { type: 'text', readOnly: true, value: user.ID_KLUB || '' },
             'TIPE_PEMAIN': { type: 'select', options: ['UTAMA', 'CADANGAN'], required: true, helper: 'Status Pemain di Pertandingan' },
             'ID_PEMAIN': { type: 'select', helper: 'Pilih Pemain (Data dari A2)', required: true },
             'NAMA_PUNGGUNG': { type: 'text', helper: 'Nama Pendek Pemain (Diisi Otomatis)' , readOnly: true},
@@ -439,244 +392,219 @@ function getFormFields(sheetName, userData) {
             'JUDUL_BERITA': { type: 'text', required: true }, 
             'POTO_URL': { type: 'text', helper: 'URL Gambar Thumbnail' },
             'ISI_BERITA': { type: 'textarea', required: true }, 
-            'PENULIS': { type: 'text', readOnly: true, value: globalUserData.USERNAME },
-            'TANGGAL': { type: 'text', readOnly: true, value: new Date().toLocaleDateString("id-ID") },
+            'PENULIS': { type: 'text', readOnly: true, value: user.USERNAME },
         };
     }
     return {};
 }
 
-function openModal(sheetName, itemToEdit) {
+async function openModal(sheetName, itemData) {
     const modal = document.getElementById('modal');
     const form = document.getElementById('dynamic-form');
-    const title = document.getElementById('modal-title');
-    const isEdit = !!itemToEdit;
+    const isEdit = !!itemData;
+    const fields = getFormFields(sheetName, globalUserData);
+    let html = '';
     
-    title.textContent = `${isEdit ? 'Edit' : 'Tambah'} Data ${sheetName}`;
-    form.innerHTML = '';
+    // Set title
+    document.getElementById('modal-title').textContent = isEdit ? `Edit Data ${sheetName}` : `Tambah Data ${sheetName}`;
     
-    // Pastikan globalUserData tersedia sebelum memanggil getFormFields
-    const fields = getFormFields(sheetName, globalUserData || { TIPE_USER: 'GUEST', ID_KLUB: '' });
-    const primaryKey = sheetName === 'FORM-A1' ? 'ID_KLUB' : sheetName === 'FORM-A2' ? 'ID_PEMAIN' : sheetName === 'Berita' ? 'ID_BERITA' : 'ID LINE-UP';
-
-    form.dataset.sheet = sheetName;
-    form.dataset.primaryKey = primaryKey;
-    form.dataset.mode = isEdit ? 'edit' : 'create';
-    if (isEdit) form.dataset.keyValue = itemToEdit[primaryKey];
-
-    const inputElements = {}; // Untuk menyimpan referensi input element
-    
+    // Build form HTML
     for (const key in fields) {
         const field = fields[key];
-        
-        // Header
+        const currentValue = isEdit ? (itemData[key] || field.value || '') : (field.value || '');
+        const readOnly = (field.readOnly || isEdit && key === 'ID_KLUB' && globalUserData.TIPE_USER === 'ADMIN KLUB') ? 'readonly' : '';
+        const required = field.required ? 'required' : '';
+        const helper = field.helper ? `<small style="color:#666; display:block;">(${field.helper})</small>` : '';
+
         if (field.header) {
-            const headerEl = document.createElement('h4');
-            headerEl.textContent = field.header;
-            headerEl.style.marginTop = '20px';
-            headerEl.style.borderBottom = '1px solid #ddd';
-            form.appendChild(headerEl);
+             html += `<h4 style="border-top: 1px solid #ccc; padding-top: 15px; margin-top: 20px;">${field.header}</h4>`;
         }
 
-        const divGroup = document.createElement('div');
-        divGroup.className = 'form-group';
-        
-        const label = document.createElement('label');
-        label.textContent = key.replace(/_/g, ' ') + ':';
-        divGroup.appendChild(label);
-        
-        let input;
-        
-        if (field.type === 'textarea') {
-            input = document.createElement('textarea');
-            input.rows = 3;
+        if (field.type === 'select' && key === 'ID_PEMAIN') {
+            html += `
+                <div class="form-group">
+                    <label for="${key}">${key.replace(/_/g, ' ')} ${required ? '*' : ''}:</label>
+                    <select id="${key}" ${required} ${readOnly} onchange="fillPlayerDetails(this.value)">
+                        <option value="">Memuat pemain...</option>
+                    </select>
+                    ${helper}
+                </div>
+            `;
         } else if (field.type === 'select') {
-            input = document.createElement('select');
-            if (key === 'ID_PEMAIN' && sheetName === 'FORM-A3') {
-                fillPlayerDropdownInModal(input, itemToEdit ? itemToEdit[key] : null);
-            } else if (field.options) {
-                field.options.forEach(optionText => {
-                    const option = document.createElement('option');
-                    option.value = optionText;
-                    option.textContent = optionText;
-                    if (isEdit && itemToEdit[key] === optionText) option.selected = true;
-                    input.appendChild(option);
-                });
-            }
+            html += `
+                <div class="form-group">
+                    <label for="${key}">${key.replace(/_/g, ' ')} ${required ? '*' : ''}:</label>
+                    <select id="${key}" ${required} ${readOnly}>
+                        ${field.options.map(opt => `<option value="${opt}" ${opt == currentValue ? 'selected' : ''}>${opt}</option>`).join('')}
+                    </select>
+                    ${helper}
+                </div>
+            `;
+        } else if (field.type === 'textarea') {
+            html += `
+                <div class="form-group">
+                    <label for="${key}">${key.replace(/_/g, ' ')} ${required ? '*' : ''}:</label>
+                    <textarea id="${key}" ${required} ${readOnly}>${currentValue}</textarea>
+                    ${helper}
+                </div>
+            `;
         } else {
-            input = document.createElement('input');
-            input.type = field.type;
-        }
-        
-        input.name = key;
-        
-        let displayValue = isEdit && itemToEdit[key] !== undefined ? itemToEdit[key] : (field.value || '');
-        
-        if (field.type === 'date') {
-            // Menangani konversi format tanggal dari spreadsheet ke input date HTML
-            if (displayValue instanceof Date && !isNaN(displayValue)) {
-                displayValue = displayValue.toISOString().substring(0, 10);
-            } else if (typeof displayValue === 'string' && displayValue.match(/^\d{4}-\d{2}-\d{2}/)) {
-                 // Sudah format YYYY-MM-DD
-                 displayValue = displayValue.substring(0, 10);
-            } else if (typeof displayValue === 'string') {
-                 // Coba konversi format D-M-Y atau D/M/Y ke YYYY-MM-DD
-                 const parts = displayValue.split(/[-/]/);
-                 if (parts.length === 3) {
-                     // Asumsi DD-MM-YYYY atau DD-MM-YY (YY diubah menjadi 19YY atau 20YY)
-                     let year = parts[2].length === 2 ? (parseInt(parts[2]) > 50 ? '19' : '20') + parts[2] : parts[2];
-                     displayValue = `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                 }
+            let inputType = field.type;
+            let formattedValue = currentValue;
+            
+            // Format tanggal untuk input type="date"
+            if (inputType === 'date' && currentValue) {
+                try {
+                     const dateObj = new Date(currentValue);
+                     formattedValue = dateObj.toISOString().substring(0, 10);
+                } catch(e) { /* ignore */ }
             }
+
+            html += `
+                <div class="form-group">
+                    <label for="${key}">${key.replace(/_/g, ' ')} ${required ? '*' : ''}:</label>
+                    <input type="${inputType}" id="${key}" value="${formattedValue}" ${required} ${readOnly}>
+                    ${helper}
+                </div>
+            `;
         }
-        
-        input.value = displayValue;
-        if (field.readOnly) input.readOnly = true;
-        if (field.required) input.required = true;
-        
-        divGroup.appendChild(input);
-        
-        if (field.helper) {
-            const helper = document.createElement('small');
-            helper.textContent = field.helper;
-            helper.style.color = '#666';
-            divGroup.appendChild(helper);
-        }
-        
-        form.appendChild(divGroup);
-        inputElements[key] = input;
+    }
+
+    html += `<button type="submit" class="action-btn" style="width:100%;">Simpan Data</button>`;
+    form.innerHTML = html;
+    
+    form.onsubmit = (e) => handleDynamicFormSubmit(e, sheetName, isEdit, itemData);
+    
+    if (sheetName === 'FORM-A3') {
+        fillPlayerDropdownInModal(itemData);
     }
     
-    // Logika Auto-fill NAMA_PUNGGUNG dan NO_PUNGGUNG di FORM-A3
-    if (sheetName === 'FORM-A3') {
-        const id_pemain_input = inputElements['ID_PEMAIN'];
-        id_pemain_input.addEventListener('change', async (e) => {
-            const selectedId = e.target.value;
-            if (selectedId) {
-                const resultA2 = await fetchData('readData', 'GET', { sheet: 'FORM-A2' });
-                if (resultA2.success) {
-                    const selectedPlayer = resultA2.data.find(p => p.ID_PEMAIN === selectedId);
-                    if (selectedPlayer) {
-                        inputElements['NAMA_PUNGGUNG'].value = selectedPlayer.NAMA_PUNGGUNG || selectedPlayer.NAMA_LENGKAP;
-                        inputElements['NO_PUNGGUNG'].value = selectedPlayer.NPG || '';
-                    }
-                }
-            } else {
-                inputElements['NAMA_PUNGGUNG'].value = '';
-                inputElements['NO_PUNGGUNG'].value = '';
-            }
-        });
-        
-        // Panggil event change secara manual jika edit mode (untuk auto-fill)
-        if (isEdit && itemToEdit['ID_PEMAIN']) {
-             id_pemain_input.dispatchEvent(new Event('change'));
-        }
-    }
-
-
-    const submitBtn = document.createElement('button');
-    submitBtn.type = 'submit';
-    submitBtn.textContent = isEdit ? 'Simpan Perubahan' : 'Buat Baru';
-    submitBtn.className = 'action-btn';
-    form.appendChild(submitBtn);
-
     modal.classList.remove('hidden');
 }
 
-async function fillPlayerDropdownInModal(selectElement, selectedValue) {
-    selectElement.innerHTML = '<option value="">-- Memuat Pemain Klub --</option>';
-    selectElement.disabled = true;
-
-    try {
-        const result = await fetchData('readData', 'GET', { sheet: 'FORM-A2' });
+async function fillPlayerDropdownInModal(itemData) {
+    const dropdown = document.getElementById('ID_PEMAIN');
+    if (!dropdown) return;
+    
+    const result = await fetchData('readData', 'GET', { sheet: 'FORM-A2' });
+    
+    if (result.success) {
+        let players = result.data;
         
-        if (result.success) {
-            selectElement.innerHTML = '<option value="">-- Pilih Pemain --</option>';
-            result.data.forEach(p => {
-                const option = document.createElement('option');
-                option.value = p.ID_PEMAIN;
-                option.textContent = `${p.NAMA_LENGKAP} (${p.NPG || 'No NPG'})`;
-                if (p.ID_PEMAIN === selectedValue) {
-                    option.selected = true;
-                }
-                selectElement.appendChild(option);
-            });
-            selectElement.disabled = false;
-        } else {
-            selectElement.innerHTML = '<option value="">Gagal memuat pemain</option>';
+        // Filter pemain hanya dari klub user yang sedang login
+        if (globalUserData.TIPE_USER === 'ADMIN KLUB' && globalUserData.ID_KLUB) {
+             players = players.filter(p => p.ID_KLUB === globalUserData.ID_KLUB);
         }
-    } catch (e) {
-        selectElement.innerHTML = '<option value="">Error memuat data A2</option>';
+
+        dropdown.innerHTML = '<option value="">-- Pilih Pemain --</option>';
+        players.forEach(player => {
+            const selected = itemData && itemData.ID_PEMAIN === player.ID_PEMAIN ? 'selected' : '';
+            dropdown.innerHTML += `<option value="${player.ID_PEMAIN}" data-npg="${player.NPG}" data-nama="${player.NAMA_PUNGGUNG}" ${selected}>${player.NAMA_LENGKAP} (${player.NPG})</option>`;
+        });
+        
+        // Atur event onchange
+        dropdown.onchange = (e) => fillPlayerDetails(e.target.value);
+        
+        // Panggil sekali untuk mengisi detail jika dalam mode edit
+        if(itemData && itemData.ID_PEMAIN) {
+             fillPlayerDetails(itemData.ID_PEMAIN);
+        }
+    } else {
+        dropdown.innerHTML = `<option value="">Gagal memuat data pemain: ${result.message}</option>`;
     }
 }
 
+function fillPlayerDetails(playerId) {
+    const dropdown = document.getElementById('ID_PEMAIN');
+    const selectedOption = dropdown.querySelector(`option[value="${playerId}"]`);
+    
+    const namaPunggungInput = document.getElementById('NAMA_PUNGGUNG');
+    const noPunggungInput = document.getElementById('NO_PUNGGUNG');
+    
+    if (selectedOption) {
+        namaPunggungInput.value = selectedOption.getAttribute('data-nama') || '';
+        noPunggungInput.value = selectedOption.getAttribute('data-npg') || '';
+    } else {
+        namaPunggungInput.value = '';
+        noPunggungInput.value = '';
+    }
+}
 
 function closeModal() {
     document.getElementById('modal').classList.add('hidden');
+    document.getElementById('dynamic-form').innerHTML = '';
 }
 
-document.getElementById('dynamic-form').addEventListener('submit', handleDynamicFormSubmit);
-
-async function handleDynamicFormSubmit(event) {
+async function handleDynamicFormSubmit(event, sheetName, isEdit, itemData) {
     event.preventDefault();
     const form = event.target;
-    const sheetName = form.dataset.sheet;
-    const mode = form.dataset.mode;
-    const primaryKey = form.dataset.primaryKey;
-    const keyValue = form.dataset.keyValue;
-
-    const formData = new FormData(form);
-    const data = {};
-    for (const [key, value] of formData.entries()) {
-        data[key] = value;
+    const fields = getFormFields(sheetName);
+    const dataToSend = {};
+    
+    // Kumpulkan data dari form
+    for (const key in fields) {
+        const element = form.elements[key];
+        if (element) {
+             dataToSend[key] = element.value;
+             if (element.type === 'number') {
+                 dataToSend[key] = parseInt(element.value) || 0;
+             }
+        }
     }
-
-    let action, postData;
-    if (mode === 'create') {
-        action = sheetName === 'FORM-A2' ? 'createPemainA2' : 'createData';
-        postData = { sheet: sheetName, data: data };
-    } else {
-        action = 'updateData';
-        // Hanya kirim data yang TIDAK ReadOnly untuk menghindari overwrite nilai otomatis
-        const fieldsToUpdate = {};
-        const fieldDefinitions = getFormFields(sheetName, globalUserData);
-        for(const key in data) {
-            if (!fieldDefinitions[key] || !fieldDefinitions[key].readOnly) {
-                 fieldsToUpdate[key] = data[key];
+    
+    let result;
+    const primaryKey = sheetName === 'FORM-A1' ? 'ID_KLUB' : sheetName === 'FORM-A2' ? 'ID_PEMAIN' : sheetName === 'FORM-A3' ? 'ID_LINE_UP' : 'ID_BERITA';
+    
+    if (isEdit) {
+        // Logika Update
+        const dataToUpdate = {};
+        for (const key in dataToSend) {
+            // Hanya kirim data yang berubah (simplifikasi, kirim semua kecuali PK)
+            if (key !== primaryKey) {
+                 dataToUpdate[key] = dataToSend[key];
             }
         }
-
-        postData = { sheet: sheetName, keyName: primaryKey, keyValue: keyValue, dataToUpdate: fieldsToUpdate };
+        
+        result = await fetchData('updateData', 'POST', {
+            sheet: sheetName,
+            keyName: primaryKey,
+            keyValue: itemData[primaryKey],
+            dataToUpdate: dataToUpdate
+        });
+    } else {
+        // Logika Create
+        const action = (sheetName === 'FORM-A2') ? 'createPemainA2' : 'createData';
+        result = await fetchData(action, 'POST', {
+            sheet: sheetName,
+            data: dataToSend
+        });
     }
-
-    const result = await fetchData(action, 'POST', postData);
 
     if (result.success) {
         alert(result.message);
         closeModal();
-        showContent(sheetName.split('-').pop()); 
+        showContent(sheetName.replace('FORM-', '')); // Muat ulang konten
     } else {
-        alert("Gagal: " + result.message);
+        alert("Aksi gagal: " + result.message);
     }
 }
 
-async function deleteDataFromSheet(sheetName, keyName, idValue) {
-    if (confirm(`Yakin ingin menghapus data dari ${sheetName} dengan ID: ${idValue}? Tindakan ini tidak dapat dibatalkan.`)) {
-        const result = await fetchData('deleteData', 'POST', {
-            sheet: sheetName,
-            keyName: keyName,
-            keyValue: idValue
-        });
+async function deleteDataFromSheet(sheetName, keyName, keyValue) {
+    if (!confirm(`Apakah Anda yakin ingin menghapus data ${keyName}: ${keyValue} dari ${sheetName}?`)) return;
 
-        if (result.success) {
-            alert(result.message);
-            showContent(sheetName.split('-').pop()); 
-        } else {
-            alert("Gagal menghapus: " + result.message);
-        }
+    const result = await fetchData('deleteData', 'POST', {
+        sheet: sheetName,
+        keyName: keyName,
+        keyValue: keyValue
+    });
+
+    if (result.success) {
+        alert(result.message);
+        showContent(sheetName.replace('FORM-', '')); // Muat ulang konten
+    } else {
+        alert("Penghapusan gagal: " + result.message);
     }
 }
-
 
 // Inisialisasi
 document.addEventListener('DOMContentLoaded', checkAuth);
